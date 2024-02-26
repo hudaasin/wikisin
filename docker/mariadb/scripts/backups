@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Set the script to exit immediately if a command fails
+set -o errexit
+# Set the script to exit immediately in case of an error in a pipeline
+set -o pipefail
+# Treat unset variables as an error and exit immediately
+set -o nounset
+
+# Get the directory of the script
+working_dir="$(dirname ${0})"
+
+# Source the constants and messages scripts
+source "${working_dir}/sources/constants.sh"    # Constantsfile
+source "${working_dir}/sources/messages.sh"     # Messages file
+source "${working_dir}/sources/utils.sh"        # Utilities file
+
+# Function to list DBMS backup files
+dbms_backups() {
+    message_info "Here are your DBMS backups:"
+    list_backups "*_${DBMS_BACKUP_FILE_SUFFIX}.sql.gz"
+}
+
+# Function to list database backup files
+data_backups() {
+    message_info "Here are your database backups:"
+    list_backups "*_${DATA_BACKUP_FILE_SUFFIX}.sql.gz" "$DATABASE_BACKUP_DIR_PATH"
+}
+
+# Function to list all backup files
+backups() {
+    dbms_backups
+    message_newline
+    data_backups
+}
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"dbms")
+    shift
+    dbms_backups "$@"
+    ;;
+"data")
+    shift
+    data_backups "$@"
+    ;;
+"all")
+    shift
+    backups "$@"
+    ;;
+*)
+    message_error "BACKUPS: Invalid operator name. Available operators: dbms, data, all"
+    exit 1
+    ;;
+esac

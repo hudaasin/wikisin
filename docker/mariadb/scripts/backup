@@ -1,0 +1,171 @@
+#!/bin/bash
+
+# Set the errexit, pipefail, and nounset options
+set -o errexit
+set -o pipefail
+set -o nounset
+
+# Get the directory of the script
+working_dir="$(dirname ${0})"
+
+# Source the necessary files
+source "${working_dir}/sources/constants.sh" # Constants file
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/yes_no.sh"    # Yes/No prompt file
+source "${working_dir}/sources/utils.sh"        # Utilities file
+
+update_backup_ownership_if_uid_provided() {
+    # Change ownership of the backup file if uid is provided
+    if [[ -n $2 ]]; then
+        chown $uid:$uid $backup_file_name
+        message_success "Ownership of backup file '${1}' updated to ${2}."
+    fi
+}
+
+backup_dbms() {
+    # Initialize variables
+    username=""
+    password=""
+    uid=""
+    backup_name=""
+    backup_file_name=""
+
+    # Parse named arguments
+    while getopts "u:p:i:n:" opt; do
+        case ${opt} in
+        u) username=${OPTARG} ;;
+        p) password=${OPTARG} ;;
+        i) uid=${OPTARG} ;;
+        n) backup_name=${OPTARG} ;;
+        *)
+            message_error "Invalid option: ${opt}"
+            exit 1
+            ;;
+        esac
+    done
+
+    # Check if required arguments are provided
+    if [[ -z $username ]] && [[ -z $password ]]; then
+        username="root"
+        password="${MYSQL_ROOT_PASSWORD}"
+    elif [[ -z $username ]] || [[ -z $password ]]; then
+        message_error "Usage: $0 -u <username> -p <password>"
+        exit 1
+    fi
+
+    # Check if the backup file name is provided as an argument
+    if [[ -n $backup_name ]]; then
+        backup_file_name="${BACKUP_DIR_PATH}/${backup_name}"
+    else
+        # Set default backup file name if not provided
+        backup_file_name="${BACKUP_DIR_PATH}/${DBMS_BACKUP_FILE_PREFIX}_$(date +'%Y_%m_%dT%H_%M_%S')_${DBMS_BACKUP_FILE_SUFFIX}.sql.gz"
+    fi
+
+    # Display a welcome message
+    message_welcome "Initiating DBMS backup to '${backup_name}'..."
+
+    # Backup the DBMS using mariadb-backup and stream the output to the gzip command for compression
+    mariadb-backup --backup --host=${MYSQL_HOST} --port=${MYSQL_PORT} --user=${username} --password=${password} --stream=xbstream 2>/dev/null |
+        gzip -q -9 >"${backup_file_name}" &
+    # Display a spinner message indicating the backup and compression process
+    spinner "Creating a backup of the DBMS and compressing the file..." ||
+        # If the command fails, remove the incomplete backup file and exit with an error code
+        (rm "${backup_file_name}" && exit 1)
+
+    # Check the exit status of the backup_dbms function
+    if [[ $? -eq 0 ]]; then # If backup is successful, display a success message
+        message_success "DBMS backup successfully created at: '${backup_name}'"
+    else # If backup fails, display an error message and exit
+        message_error "Backup failed. Please check the mariadb-backup command."
+        exit 1
+    fi
+
+    # Change ownership of the backup file if uid is provided
+    update_backup_ownership_if_uid_provided "$backup_file_name" "$uid"
+}
+
+backup_data() {
+    # Initialize variables
+    username=""
+    password=""
+    uid=""
+    backup_name=""
+    backup_file_name=""
+
+    # Parse named arguments
+    while getopts "u:p:i:n:" opt; do
+        case ${opt} in
+        u) username=${OPTARG} ;;
+        p) password=${OPTARG} ;;
+        i) uid=${OPTARG} ;;
+        n) backup_name=${OPTARG} ;;
+        *)
+            echo "Invalid option: ${opt}"
+            exit 1
+            ;;
+        esac
+    done
+
+    # Check if required arguments are provided
+    if [[ -z $username ]] && [[ -z $password ]]; then
+        username=$MYSQL_USER
+        password=$MYSQL_PASSWORD
+    elif [[ -z $username ]] || [[ -z $password ]]; then
+        echo "Usage: $0 -u <username> -p <password>"
+        exit 1
+    fi
+
+    # Display a message indicating the backup process is starting
+    message_welcome "Initializing database backup"
+
+    # List databases and prompt for the database name
+    message_ask "Which database would you like to back up? [Here are your current databases:]"
+    list_databases $username $password
+    read -p "  Please enter the name of the database you wish to check:  " db_name
+
+    # Check if the backup file name is provided as an argument
+    if [[ -n $backup_name ]]; then
+        backup_file_name="${DATABASE_BACKUP_DIR_PATH}/${backup_name}"
+    else
+        # Set default backup file name if not provided
+        backup_file_name="${DATABASE_BACKUP_DIR_PATH}/${db_name}_$(date +'%Y_%m_%dT%H_%M_%S')_${DATA_BACKUP_FILE_SUFFIX}.sql.gz"
+    fi
+
+    # Check if the database exists and create a backup
+    if mariadb -u $username -p$password -e "USE $db_name;" 2>/dev/null; then
+        message_success "Database $db_name found. Initiating backup process..."
+        mariadb-dump -u${username} -p${password} --databases "${db_name}" 2>/dev/null |
+            gzip -q -9 >"${backup_file_name}" &
+        # Display a spinner message indicating the backup and compression process
+        spinner "Creating a backup of the database and compressing the file..." ||
+            (rm "${backup_file_name}" && exit 1)
+        message_success "Backup successfully created at: '$backup_file_name'"
+    else
+        message_error "Database $db_name not found."
+        exit 1
+    fi
+
+    update_backup_ownership_if_uid_provided "$backup_file_name" "$uid"
+}
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"dbms")
+    shift
+    backup_dbms "$@"
+    ;;
+"data")
+    shift
+    backup_data "$@"
+    ;;
+*)
+    message_error "BACKUP: Invalid function name. Available functions: dbms, data"
+    exit 1
+    ;;
+esac

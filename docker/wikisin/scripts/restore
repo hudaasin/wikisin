@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Set the script to exit immediately if a command exits with a non-zero status
+set -o errexit
+# Set the script to exit when a command in a pipeline fails
+set -o pipefail
+# Set the script to exit if it tries to use unset variables
+set -o nounset
+
+# Define the working directory and source the necessary files
+working_dir="$(dirname ${0})"
+source "${working_dir}/sources/constants.sh" # Constants file
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/utils.sh"     # Utilities file
+
+# Function to restore the database
+restore_imgs() {
+    # Initialize variables
+    backup_name=""
+    destination="/var/www/html/images"
+
+    # Parse named arguments
+    while getopts "n:" opt; do
+        case ${opt} in
+        n) backup_name=${OPTARG} ;; # Set the backup_name from the argument
+        *)
+            message_error "Invalid option: ${opt}"
+            exit 1
+            ;;
+        esac
+    done
+
+    # Check if required arguments are provided
+    if [[ -z $backup_name ]]; then
+        echo "Usage: $0 -n <backup name>"
+        exit 1
+    fi
+
+    backup_file_name="${BACKUP_DIR_PATH}/${backup_name}"
+
+    # Check if the backup file exists and has the correct extension
+    if [[ ! -f "${backup_file_name}" || ! "${backup_name}" == *${BACKUP_FILE_SUFFIX}.tar.xz ]]; then
+        message_error "No backup with the specified filename found or the file does not have the correct extension (${BACKUP_FILE_SUFFIX}.tar.xz). Check out the 'backups' maintenance script output to see if there is one and try again."
+        exit 1
+    fi
+
+    # Restore the images backup to the appropriate directory
+    rm -rf "${BACKUP_DIR_DESTINATION}"/* 2>/dev/null &
+    spinner "Removing images in '${BACKUP_DIR_DESTINATION}'"
+    # Check the exit status of the gunzip function
+    if [[ $? -eq 0 ]]; then
+        message_success "Images inside '${BACKUP_DIR_DESTINATION}' have been removed."
+    else
+        message_error "Failed to remove the images into '${BACKUP_DIR_DESTINATION}'. Restore process aborted."
+        exit 1
+    fi
+
+    (xz -d -c "${backup_file_name}" | tar -xf - -C /) 2>/dev/null &
+    spinner "Restoring images from '$backup_file_name' to '${destination}'"
+    # Check the exit status of the gunzip function
+    if [[ $? -eq 0 ]]; then
+        message_success "All images restored from '${backup_file_name}' backup to '${destination}'."
+    else
+        message_error "Failed to restore the backup '${backup_file_name}' to '${destination}'. Restore process aborted."
+        exit 1
+    fi
+    message_success "Images backup successfully restored."
+}
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"imgs")
+    shift
+    restore_imgs "$@"
+    ;;
+*)
+    message_error "RESTORE: Invalid function name. Available functions: imgs"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,46 @@
+version: "3"
+
+services:
+  wikisin:
+    build:
+      context: ./docker/wikisin
+      dockerfile: Dockerfile
+    container_name: wikisin
+    ports:
+      - "8090:80"
+    env_file:
+      - .env
+    volumes:
+      - ./backups:/backups
+      - ./public:/var/www/html/public
+      - ./settings/LocalSettings.php:/var/www/html/LocalSettings.php
+      - wikisin_imgs:/var/www/html/images
+    depends_on:
+      - db
+    networks:
+      - wikisin_net
+
+  db:
+    build:
+      context: ./docker/mariadb
+      dockerfile: Dockerfile
+    container_name: wikisin_db
+    env_file:
+      - .env
+    volumes:
+      - ./backups:/backups
+      - ./scripts/db_entrypoint:/docker-entrypoint-initdb.d
+      - wikisin_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - wikisin_net
+
+networks:
+  wikisin_net:
+    driver: bridge
+
+volumes:
+  # Define an external volume named wikisin_imgs
+  wikisin_imgs: {}
+  # Define an external volume named wikisin_data
+  wikisin_data: {}

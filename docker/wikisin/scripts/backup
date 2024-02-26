@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# Set the errexit, pipefail, and nounset options
+set -o errexit
+set -o pipefail
+set -o nounset
+
+# Get the directory of the script
+working_dir="$(dirname ${0})"
+
+# Source the necessary files
+source "${working_dir}/sources/constants.sh" # Constants file
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/yes_no.sh"    # Yes/No prompt file
+source "${working_dir}/sources/utils.sh"     # Utilities file
+
+update_backup_ownership_if_uid_provided() {
+    # Change ownership of the backup file if uid is provided
+    if [[ -n $2 ]]; then
+        chown $uid:$uid $backup_file_name
+        message_success "Ownership of backup file '${1}' updated to ${2}."
+    fi
+}
+
+backup_imgs() {
+    # Function to create a backup of images
+    uid=""
+    backup_name=""
+    backup_file_name=""
+    tmp_dir=/tmp/backup
+
+    # Process named arguments
+    while getopts "i:n:" opt; do
+        case ${opt} in
+        i) uid=${OPTARG} ;;
+        n) backup_name=${OPTARG} ;;
+        *)
+            message_error "Invalid option: ${opt}"
+            exit 1
+            ;;
+        esac
+    done
+
+    # Check if a backup file name is provided as an argument
+    if [[ -n $backup_name ]]; then
+        backup_file_name="${BACKUP_DIR_PATH}/${backup_name}"
+    else
+        # If no backup file name is provided, determine the default name
+        backup_file_name="${BACKUP_DIR_PATH}/${BACKUP_FILE_PREFIX}_$(date +'%Y_%m_%dT%H_%M_%S')_${BACKUP_FILE_SUFFIX}.tar.xz"
+    fi
+
+    # Create a tar archive of the images directory without printing tar messages and removing leading '/'
+    (tar -cvf - ${BACKUP_DIR_DESTINATION} | xz -c -z >${backup_file_name}) 2>/dev/null &
+    # Display a spinner message indicating the backup and compression process
+    spinner "Creating the tar archive of '${BACKUP_DIR_DESTINATION}' and compress it using xz." ||
+        (rm ${backup_file_name} && exit 1)
+    # Check the exit status of the tar function
+    if [[ $? -eq 0 ]]; then # If backup is successful, display a success message
+        message_success "Images backup successfully created at: '${backup_file_name}'"
+    else # If backup fails, display an error message and exit
+        message_error "Backup failed. Please check the tar command."
+        exit 1
+    fi
+
+    update_backup_ownership_if_uid_provided "${backup_file_name}" "${uid}"
+}
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"imgs")
+    shift
+    backup_imgs "$@"
+    ;;
+*)
+    message_error "BACKUP: Invalid function name. Available functions: imgs"
+    exit 1
+    ;;
+esac

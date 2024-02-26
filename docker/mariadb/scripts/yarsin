@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Set the script to exit immediately if a command exits with a non-zero status
+set -o errexit
+# Set the script to exit when a command in a pipeline fails
+set -o pipefail
+# Set the script to exit if it tries to use unset variables
+set -o nounset
+
+# Define the working directory and source the necessary files
+working_dir="$(dirname ${0})"
+source "${working_dir}/sources/constants.sh" # Constants file
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/utils.sh"     # Utilities file
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"init")
+    shift
+    # Initializa the database
+    message_welcome "You are about to initialize the database with factory data."
+    source "${working_dir}/restore" dbms -n "init_dbms.sql.gz"
+    message_success "The initialization process has been successfully completed. You can now start using your wikis..."
+    ;;
+"backup")
+    shift
+    case $1 in
+    "dbms")
+        shift
+        source "${working_dir}/backup" dbms "$@"
+        ;;
+    "data")
+        shift
+        source "${working_dir}/backup" data "$@"
+        ;;
+    *)
+        message_error "Yarsin: Invalid operator name. Available operators: dbms, data"
+        exit 1
+        ;;
+    esac
+    ;;
+"backups")
+    shift
+    case $1 in
+    "dbms")
+        shift
+        source "${working_dir}/backups" dbms "$@"
+        ;;
+    "data")
+        shift
+        source "${working_dir}/backups" data "$@"
+        ;;
+    "all")
+        shift
+        source "${working_dir}/backups" all "$@"
+        ;;
+    *)
+        message_error "Yarsin: Invalid operator name. Available operators: dbms, data, all"
+        exit 1
+        ;;
+    esac
+    ;;
+"restore")
+    shift
+    case $1 in
+    "dbms")
+        shift
+        message_welcome "Initiating the DBMS restoration process."
+        message_ask "Here are the available DBMS backups. Please select the one you wish to restore."
+        list_backups "*_${DBMS_BACKUP_FILE_SUFFIX}.sql.gz"
+        read -r -p "  Please enter the name of the DBMS backup you wish to restore:   " backup_name
+        source "${working_dir}/restore" dbms -n "${backup_name}"
+        ;;
+    "data")
+        shift
+        message_welcome "Initiating the database restoration process."
+        message_ask "Here are the available database backups. Please select the one you wish to restore."
+        list_backups "*_${DATA_BACKUP_FILE_SUFFIX}.sql.gz" "$DATABASE_BACKUP_DIR_PATH"
+        read -r -p "  Please enter the name of the DBMS backup you wish to restore:   " backup_name
+        source "${working_dir}/restore" data -n "${backup_name}"
+        ;;
+    *)
+        message_error "Invalid operator name. Available operators: dbms, data"
+        exit 1
+        ;;
+    esac
+    ;;
+*)
+    message_error "Yarsin: Invalid function name. Available functions: init, backup, restore"
+    exit 1
+    ;;
+esac

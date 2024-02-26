@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Set the script to exit immediately if a command fails
+set -o errexit
+# Set the script to exit immediately in case of an error in a pipeline
+set -o pipefail
+# Treat unset variables as an error and exit immediately
+set -o nounset
+
+# Get the directory of the script
+working_dir="$(dirname ${0})"
+
+# Source the constants and messages scripts
+source "${working_dir}/sources/constants.sh" # Constantsfile
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/utils.sh"     # Utilities file
+
+# Function to list image backup files
+backups_imgs() {
+    message_info "Here are your image backups:"
+    list_backups "*_${BACKUP_FILE_SUFFIX}.tar.xz"
+}
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"imgs")
+    shift
+    backups_imgs "$@"
+    ;;
+*)
+    message_error "BACKUPS: Invalid operator name. Available operators: imgs"
+    exit 1
+    ;;
+esac

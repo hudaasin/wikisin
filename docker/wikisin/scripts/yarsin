@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# Set the script to exit immediately if a command exits with a non-zero status
+set -o errexit
+# Set the script to exit when a command in a pipeline fails
+set -o pipefail
+# Set the script to exit if it tries to use unset variables
+set -o nounset
+
+# Define the working directory and source the necessary files
+working_dir="$(dirname ${0})"
+source "${working_dir}/sources/constants.sh" # Constants file
+source "${working_dir}/sources/messages.sh"  # Messages file
+source "${working_dir}/sources/utils.sh"     # Utilities file
+
+# Check for the function name argument
+if [[ $# -eq 0 ]]; then
+    message_error "Usage: $0 <function_name> [arguments]"
+    exit 1
+fi
+
+# Call the specified function with the provided arguments
+case $1 in
+"init")
+    shift
+    # Initializa the database
+    message_welcome "You are about to initialize the database with factory data."
+    source "${working_dir}/restore" dbms -n "init_dbms.sql.gz"
+    message_success "The initialization process has been successfully completed. You can now start using your wikis..."
+    ;;
+"backup")
+    shift
+    source "${working_dir}/backup" imgs "$@"
+    ;;
+"backups")
+    shift
+    source "${working_dir}/backups" imgs "$@"
+    ;;
+"restore")
+    shift
+    message_welcome "Initiating the DBMS restoration process."
+    message_ask "Here are the available DBMS backups. Please select the one you wish to restore."
+    list_backups "*_${BACKUP_FILE_SUFFIX}.tar.xz"
+    read -r -p "  Please enter the name of the DBMS backup you wish to restore:   " backup_name
+    source "${working_dir}/restore" imgs -n "${backup_name}"
+    ;;
+*)
+    message_error "Yarsin: Invalid function name. Available functions: init, backup, backups, restore"
+    exit 1
+    ;;
+esac
